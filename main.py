@@ -93,6 +93,8 @@ def gaussian_elimination(matrix, rhs, num_cells):
 
 # --- General solver ---
 def solve_lights_out(initial_grid, final_grid):
+
+    # Make sure
     rows = len(initial_grid)
     cols = len(initial_grid[0])
     if len(final_grid) != rows or len(final_grid[0]) != cols:
