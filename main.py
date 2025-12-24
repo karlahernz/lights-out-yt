@@ -1,124 +1,136 @@
 from typing import List
-import numpy as np
-import itertools
 
-
-# --- Convert grid to NumPy boolean array ---
-def grid_to_bool_array(grid: List[List[int]]) -> np.ndarray:
-    return np.array(grid, dtype=bool)
-
-
-# --- Convert NumPy boolean array back to 2D int list ---
-def bool_array_to_grid(arr: np.ndarray) -> List[List[int]]:
-    return arr.astype(int).tolist()
-
-
-# --- Build Lights Out adjacency matrix ---
-def build_matrix(rows: int, cols: int) -> np.ndarray:
-    """Return an (rows*cols, rows*cols) boolean adjacency matrix."""
-    n = rows * cols
-    mat = np.zeros((n, n), dtype=bool)
-
+def grid_to_int(grid: List[List[int]]) -> int:
+    """Convert a 2D grid of 0/1 to a single integer (bit-packed)."""
+    rows, cols = len(grid), len(grid[0])
+    result = 0
     for r in range(rows):
         for c in range(cols):
-            idx = r * cols + c
-            mat[idx, idx] = True  # itself
+            if grid[r][c]:
+                pos = r * cols + c
+                result |= 1 << pos
+    return result
+
+def int_to_grid(x: int, rows: int, cols: int) -> List[List[int]]:
+    """Convert integer back to 2D grid of size rows x cols."""
+    grid = [[0] * cols for _ in range(rows)]
+    for r in range(rows):
+        for c in range(cols):
+            pos = r * cols + c
+            if x & (1 << pos):
+                grid[r][c] = 1
+    return grid
+
+def build_matrix(rows: int, cols: int) -> List[int]:
+    """Build the Lights Out adjacency matrix (bit-packed rows)."""
+    matrix = []
+    for r in range(rows):
+        for c in range(cols):
+            row_mask = 0
+            # toggle self
+            row_mask |= 1 << (r * cols + c)
+            # toggle neighbors
             if r > 0:
-                mat[idx, (r - 1) * cols + c] = True
+                row_mask |= 1 << ((r - 1) * cols + c)
             if r < rows - 1:
-                mat[idx, (r + 1) * cols + c] = True
+                row_mask |= 1 << ((r + 1) * cols + c)
             if c > 0:
-                mat[idx, r * cols + (c - 1)] = True
+                row_mask |= 1 << (r * cols + (c - 1))
             if c < cols - 1:
-                mat[idx, r * cols + (c + 1)] = True
-    return mat
+                row_mask |= 1 << (r * cols + (c + 1))
+            matrix.append(row_mask)
+    return matrix
 
-
-# --- Gaussian elimination in Z2 using NumPy ---
-def gaussian_elimination(matrix: np.ndarray, rhs: np.ndarray) -> List[np.ndarray]:
-    """Solve matrix * x = rhs in Z2 (boolean) and return all solutions."""
-    mat = matrix.copy()
-    rhs = rhs.copy()
-    n_rows, n_cols = mat.shape
+def gaussian_elimination(matrix: List[int], rhs: List[int], num_cells: int) -> List[int]:
+    """Solve matrix * x = rhs in Z2 using bit-packed integers."""
+    n_rows = len(matrix)
+    n_cols = num_cells
+    mat = matrix[:]
+    b = rhs[:]
     pivot_cols = []
+    row = 0
 
+    # Forward elimination
     for col in range(n_cols):
         pivot_row = None
-        for row in range(col, n_rows):
-            if mat[row, col]:
-                pivot_row = row
+        for r in range(row, n_rows):
+            if (mat[r] >> col) & 1:
+                pivot_row = r
                 break
         if pivot_row is None:
-            continue
-        # Swap rows
-        mat[[col, pivot_row]] = mat[[pivot_row, col]]
-        rhs[[col, pivot_row]] = rhs[[pivot_row, col]]
+            continue  # free variable
+        # Swap pivot row into place
+        mat[row], mat[pivot_row] = mat[pivot_row], mat[row]
+        b[row], b[pivot_row] = b[pivot_row], b[row]
         pivot_cols.append(col)
-        # Eliminate other rows
-        for row in range(n_rows):
-            if row != col and mat[row, col]:
-                mat[row] ^= mat[col]
-                rhs[row] ^= rhs[col]
+        # Eliminate below and above
+        for r in range(n_rows):
+            if r != row and ((mat[r] >> col) & 1):
+                mat[r] ^= mat[row]
+                b[r] ^= b[row]
+        row += 1
 
-    # Check inconsistency
-    for row in range(n_rows):
-        if not mat[row].any() and rhs[row]:
-            return []
+    # Check for inconsistency in zero rows
+    for r in range(row, n_rows):
+        if mat[r] == 0 and b[r]:
+            return []  # no solution
 
-    # Build one solution (free vars = 0)
-    solution = np.zeros(n_cols, dtype=bool)
-    for i, col in enumerate(pivot_cols):
-        if rhs[i]:
-            solution[col] = True
+    # Back-substitution to get one solution (all free vars = 0)
+    solution = 0
+    for i in reversed(range(len(pivot_cols))):
+        col = pivot_cols[i]
+        rhs_val = b[i]
+        # XOR sum of all known variables to isolate pivot
+        for j in range(i + 1, len(pivot_cols)):
+            next_col = pivot_cols[j]
+            if (mat[i] >> next_col) & 1:
+                rhs_val ^= (solution >> next_col) & 1
+        if rhs_val:
+            solution |= 1 << col
 
-    # Enumerate all solutions by flipping free vars
+    # Enumerate all solutions by flipping free variables
     free_cols = set(range(n_cols)) - set(pivot_cols)
     all_solutions = [solution]
     for free_col in free_cols:
         new_solutions = []
         for sol in all_solutions:
-            sol0, sol1 = sol.copy(), sol.copy()
-            sol1[free_col] = True
-            new_solutions.extend([sol0, sol1])
+            new_solutions.append(sol)  # free_col = 0
+            new_solutions.append(sol | (1 << free_col))  # free_col = 1
         all_solutions = new_solutions
 
     return all_solutions
 
-
-# --- General solver ---
 def solve_lights_out(initial_grid: List[List[int]], final_grid: List[List[int]]) -> List[List[List[int]]]:
     rows, cols = len(initial_grid), len(initial_grid[0])
     if len(final_grid) != rows or len(final_grid[0]) != cols:
         raise ValueError("Initial and final grids must have the same dimensions.")
 
-    initial_state = grid_to_bool_array(initial_grid).flatten()
-    final_state = grid_to_bool_array(final_grid).flatten()
-    rhs = initial_state ^ final_state  # difference in Z2
+    initial_state = grid_to_int(initial_grid)
+    final_state = grid_to_int(final_grid)
+    rhs = [(initial_state ^ final_state) >> i & 1 for i in range(rows * cols)]
 
     matrix = build_matrix(rows, cols)
-    solutions = gaussian_elimination(matrix, rhs)
+    solutions_int = gaussian_elimination(matrix, rhs, rows * cols)
 
-    if not solutions:
+    if not solutions_int:
         print("No solution exists.")
         return []
 
-    # Convert flattened solutions back to 2D grids
-    return [bool_array_to_grid(sol.reshape(rows, cols)) for sol in solutions]
-
+    # Convert integer solutions back to grids
+    return [int_to_grid(sol, rows, cols) for sol in solutions_int]
 
 # --- Example usage ---
 if __name__ == "__main__":
     initial_grid = [
-        [1, 0],
-        [0, 0]
+        [1,0],
+        [0,0]
     ]
     final_grid = [
-        [0, 0],
-        [0, 0]
+        [0,0],
+        [0,0]
     ]
 
     solutions = solve_lights_out(initial_grid, final_grid)
-
     if solutions:
         print(f"{len(solutions)} solution(s) found:")
         for sol_grid in solutions:
