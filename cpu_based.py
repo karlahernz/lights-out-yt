@@ -21,7 +21,7 @@ def int_to_grid(x: int, rows: int, cols: int) -> List[List[int]]:
                 grid[r][c] = 1
     return grid
 
-def build_matrix(rows: int, cols: int) -> List[int]:
+def build_toggle_matrix(rows: int, cols: int) -> List[int]:
     """Build the Lights Out adjacency matrix (bit-packed rows)."""
     matrix = []
     for r in range(rows):
@@ -100,40 +100,32 @@ def gaussian_elimination(matrix: List[int], rhs: List[int], num_cells: int) -> L
 
     return all_solutions
 
-def solve_lights_out(initial_grid: List[List[int]], final_grid: List[List[int]]) -> List[List[List[int]]]:
+def solve_w_cpu(initial_grid: List[List[int]], final_grid: List[List[int]]) -> List[List[List[int]]]:
+
     rows, cols = len(initial_grid), len(initial_grid[0])
+
+    # Make sure that the initial_grid and final_grid dimensions are consistent
     if len(final_grid) != rows or len(final_grid[0]) != cols:
         raise ValueError("Initial and final grids must have the same dimensions.")
 
+    # Convert initial_grid and final_grid to integers via bit-packing
     initial_state = grid_to_int(initial_grid)
     final_state = grid_to_int(final_grid)
+
+    # Compute difference between initial and final state (this is the gap we need to solve for)
     rhs = [(initial_state ^ final_state) >> i & 1 for i in range(rows * cols)]
 
-    matrix = build_matrix(rows, cols)
+    # Construct "toggle effect" matrix
+    matrix = build_toggle_matrix(rows, cols)
+
+    # Implement gaussian elimination and find all solutions (if any)
     solutions_int = gaussian_elimination(matrix, rhs, rows * cols)
 
+    # Return if no solutions
     if not solutions_int:
         print("No solution exists.")
         return []
 
-    # Convert integer solutions back to grids
+    # Convert integer solutions back to grids (reverse bit-packing)
     return [int_to_grid(sol, rows, cols) for sol in solutions_int]
 
-# --- Example usage ---
-if __name__ == "__main__":
-    initial_grid = [
-        [1,0],
-        [0,0]
-    ]
-    final_grid = [
-        [0,0],
-        [0,0]
-    ]
-
-    solutions = solve_lights_out(initial_grid, final_grid)
-    if solutions:
-        print(f"{len(solutions)} solution(s) found:")
-        for sol_grid in solutions:
-            for row in sol_grid:
-                print(row)
-            print("---")
