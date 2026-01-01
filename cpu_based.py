@@ -121,11 +121,6 @@ def solve_w_cpu(initial_grid: List[List[int]], final_grid: List[List[int]]) -> L
     # Implement gaussian elimination and find all solutions (if any)
     solutions_int = gaussian_elimination(matrix, rhs, rows * cols)
 
-    # Return if no solutions
-    if not solutions_int:
-        print("No solution exists.")
-        return []
-
     # Convert integer solutions back to grids (reverse bit-packing)
     return [int_to_grid(sol, rows, cols) for sol in solutions_int]
 
